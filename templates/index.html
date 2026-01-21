@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFL Player Database</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-football-ball"></i> NFL Player Database</h1>
+            <p class="subtitle">Aggregated player data from Sleeper API and multiple sources</p>
+        </header>
+
+        <!-- Input Section -->
+        <div class="input-section">
+            <div class="form-group">
+                <label for="username">
+                    <i class="fas fa-user"></i> Sleeper Username:
+                </label>
+                <input type="text" id="username" placeholder="Enter your Sleeper username" />
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <i class="fas fa-trophy"></i> League IDs:
+                    <small style="color: #6c757d; font-weight: normal;">
+                        (Find your league ID in the Sleeper league URL - e.g., sleeper.com/leagues/<strong>123456789012</strong>)
+                    </small>
+                </label>
+                <div id="league-inputs">
+                    <div class="league-input-row">
+                        <input type="text" class="league-id" placeholder="Enter 18-digit League ID (e.g., 123456789012)" />
+                        <button class="btn-remove" onclick="removeLeagueInput(this)">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+                <button class="btn-secondary" onclick="addLeagueInput()">
+                    <i class="fas fa-plus"></i> Add Another League
+                </button>
+            </div>
+
+            <button class="btn-primary" onclick="fetchPlayers()">
+                <i class="fas fa-sync-alt"></i> Load Player Data
+            </button>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loading" class="loading hidden">
+            <div class="spinner"></div>
+            <p>Loading player data... This may take a minute.</p>
+        </div>
+
+        <!-- Error Message -->
+        <div id="error-message" class="error-message hidden"></div>
+
+        <!-- Stats Section -->
+        <div id="stats" class="stats hidden">
+            <div class="stat-card">
+                <div class="stat-value" id="total-players">0</div>
+                <div class="stat-label">Total Players</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="qb-count">0</div>
+                <div class="stat-label">Quarterbacks</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="rb-count">0</div>
+                <div class="stat-label">Running Backs</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="wr-count">0</div>
+                <div class="stat-label">Wide Receivers</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="te-count">0</div>
+                <div class="stat-label">Tight Ends</div>
+            </div>
+        </div>
+
+        <!-- Filter Section -->
+        <div id="filter-section" class="filter-section hidden">
+            <h3><i class="fas fa-filter"></i> Filters</h3>
+            <div class="filters">
+                <div class="filter-group">
+                    <label>Position:</label>
+                    <select id="position-filter">
+                        <option value="">All</option>
+                        <option value="QB">QB</option>
+                        <option value="RB">RB</option>
+                        <option value="WR">WR</option>
+                        <option value="TE">TE</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>Team:</label>
+                    <select id="team-filter">
+                        <option value="">All</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>Search:</label>
+                    <input type="text" id="search-filter" placeholder="Search by name..." />
+                </div>
+
+                <button class="btn-secondary" onclick="applyFilters()">
+                    <i class="fas fa-check"></i> Apply Filters
+                </button>
+                <button class="btn-secondary" onclick="clearFilters()">
+                    <i class="fas fa-eraser"></i> Clear Filters
+                </button>
+            </div>
+        </div>
+
+        <!-- Table Section -->
+        <div id="table-container" class="table-container hidden">
+            <div class="table-wrapper">
+                <table id="players-table">
+                    <thead>
+                        <tr id="table-headers">
+                            <!-- Headers will be dynamically generated -->
+                        </tr>
+                    </thead>
+                    <tbody id="table-body">
+                        <!-- Data will be dynamically populated -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
