@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# Install Chrome and dependencies for Selenium
+# Build script for Render.com deployment
 
 set -o errexit
 
-# Install Python dependencies first
+# Install Python dependencies
 pip install -r requirements.txt
 
-echo "Installing Chrome and ChromeDriver..."
-
-# Note: Chrome installation requires apt-get which may not be available on Render
-# This script will fail gracefully if Chrome can't be installed
+echo "Build complete - Selenium scrapers disabled in production due to timeout constraints"
 
