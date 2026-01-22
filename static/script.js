@@ -49,6 +49,10 @@ async function fetchPlayers() {
     document.getElementById('table-container').classList.add('hidden');
 
     try {
+        // Increase timeout to 5 minutes for Selenium scraping
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes
+        
         const response = await fetch('/api/get-players', {
             method: 'POST',
             headers: {
@@ -57,8 +61,15 @@ async function fetchPlayers() {
             body: JSON.stringify({
                 username: username,
                 league_ids: leagueIds
-            })
+            }),
+            signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+        }
 
         const data = await response.json();
 
