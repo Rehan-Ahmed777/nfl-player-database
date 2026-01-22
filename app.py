@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 import re
 import time
+import os
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -15,6 +16,9 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 app = Flask(__name__)
 CORS(app)
+
+# Disable Selenium in production (Render free tier doesn't support Chrome)
+SELENIUM_ENABLED = os.environ.get('SELENIUM_ENABLED', 'false').lower() == 'true'
 
 def convert_height_to_feet_inches(height_inches):
     """Convert height from inches to feet'inches" format (e.g., 71 -> 5'11")"""
@@ -171,6 +175,12 @@ def get_user_roster(username, league_id):
 def scrape_fantasy_pros():
     """Scrape Fantasy Pros dynasty rankings using Selenium"""
     rankings = {}
+    
+    # Skip Selenium in production
+    if not SELENIUM_ENABLED:
+        print("Selenium disabled in production - skipping Fantasy Pros scraping")
+        return rankings
+    
     driver = None
     try:
         print("Attempting to scrape Fantasy Pros with Selenium...")
@@ -252,6 +262,12 @@ def scrape_fantasy_pros():
 def scrape_ras_scores():
     """Scrape RAS (Relative Athletic Score) using Selenium"""
     ras_scores = {}
+    
+    # Skip Selenium in production
+    if not SELENIUM_ENABLED:
+        print("Selenium disabled in production - skipping RAS scraping")
+        return ras_scores
+    
     driver = None
     try:
         print("Attempting to scrape RAS scores with Selenium...")
@@ -321,6 +337,12 @@ def scrape_ras_scores():
 def scrape_free_agency():
     """Scrape free agency data from Over The Cap using Selenium"""
     free_agency = {}
+    
+    # Skip Selenium in production
+    if not SELENIUM_ENABLED:
+        print("Selenium disabled in production - skipping free agency scraping")
+        return free_agency
+    
     driver = None
     try:
         print("Attempting to scrape free agency with Selenium...")
@@ -407,6 +429,12 @@ def scrape_free_agency():
 def scrape_draft_info():
     """Scrape NFL draft information using Selenium"""
     draft_info = {}
+    
+    # Skip Selenium in production
+    if not SELENIUM_ENABLED:
+        print("Selenium disabled in production - skipping draft info scraping")
+        return draft_info
+    
     driver = None
     try:
         print("Attempting to scrape draft info with Selenium...")
