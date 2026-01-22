@@ -1,6 +1,7 @@
 let allPlayers = [];
 let filteredPlayers = [];
 let leagueIds = [];
+let leagueNames = {};  // Store league names
 
 function addLeagueInput() {
     const container = document.getElementById('league-inputs');
@@ -64,9 +65,10 @@ async function fetchPlayers() {
         if (data.success) {
             allPlayers = data.players;
             filteredPlayers = [...allPlayers];
+            leagueNames = data.league_names || {};  // Store league names
             displayPlayers();
             updateStats();
-            populateTeamFilter();
+            populateFilters();
             
             // Show UI elements
             document.getElementById('stats').classList.remove('hidden');
@@ -80,6 +82,30 @@ async function fetchPlayers() {
     } finally {
         document.getElementById('loading').classList.add('hidden');
     }
+}
+
+function populateFilters() {
+    // Populate team filter
+    const teamFilter = document.getElementById('team-filter');
+    const teams = [...new Set(allPlayers.map(p => p.team))].filter(t => t).sort();
+    teamFilter.innerHTML = '<option value="">All</option>';
+    teams.forEach(team => {
+        const option = document.createElement('option');
+        option.value = team;
+        option.textContent = team;
+        teamFilter.appendChild(option);
+    });
+
+    // Populate college filter
+    const collegeFilter = document.getElementById('college-filter');
+    const colleges = [...new Set(allPlayers.map(p => p.college))].filter(c => c).sort();
+    collegeFilter.innerHTML = '<option value="">All</option>';
+    colleges.forEach(college => {
+        const option = document.createElement('option');
+        option.value = college;
+        option.textContent = college;
+        collegeFilter.appendChild(option);
+    });
 }
 
 function displayPlayers() {
@@ -98,13 +124,14 @@ function displayPlayers() {
     // Generate headers
     const baseHeaders = [
         'Name', 'Position', 'Team', 'Experience (yrs)', 'Height', 'Weight (lbs)', 
-        'College', 'Age', 'Birthdate', 'Overall Rank', 'Position Rank', 'RAS Score',
+        'College', 'Age', 'Birthdate', 'NFL Career Snaps', 'Overall Rank', 'Position Rank', 'RAS Score',
         'FA Year', 'FA Type', 'Draft Year', 'Draft Round', 'Draft Pick'
     ];
 
-    // Add league headers
+    // Add league headers with names
     leagueIds.forEach(leagueId => {
-        baseHeaders.push(`League ${leagueId}`);
+        const leagueName = leagueNames[leagueId] || `League ${leagueId}`;
+        baseHeaders.push(leagueName);
     });
 
     baseHeaders.forEach(header => {
@@ -122,11 +149,12 @@ function displayPlayers() {
             player.position,
             player.team || 'FA',
             player.experience || '',
-            player.height || '',
+            player.height || '',  // Now formatted as feet'inches\"
             player.weight || '',
             player.college || '',
             player.age || '',
             player.birthdate || '',
+            player.nfl_career_snaps || '',  // New snap counts column
             player.overall_rank || '',
             player.position_rank || '',
             player.ras_score || '',
@@ -147,8 +175,8 @@ function displayPlayers() {
             const td = document.createElement('td');
             td.textContent = cellData;
 
-            // Style ownership columns
-            if (index >= 17) { // League columns start at index 17
+            // Style ownership columns (now starting at index 18 due to new snap counts column)
+            if (index >= 18) { // League columns start at index 18
                 if (cellData === 'Owned') {
                     td.className = 'ownership-owned';
                 } else if (cellData === 'Available') {
@@ -187,41 +215,64 @@ function updateStats() {
     document.getElementById('te-count').textContent = tes;
 }
 
-function populateTeamFilter() {
-    const teamFilter = document.getElementById('team-filter');
-    const teams = [...new Set(allPlayers.map(p => p.team))].filter(t => t).sort();
-
-    teamFilter.innerHTML = '<option value="">All</option>';
-    teams.forEach(team => {
-        const option = document.createElement('option');
-        option.value = team;
-        option.textContent = team;
-        teamFilter.appendChild(option);
-    });
-}
-
 function applyFilters() {
     const positionFilter = document.getElementById('position-filter').value;
     const teamFilter = document.getElementById('team-filter').value;
+    const collegeFilter = document.getElementById('college-filter').value;
     const searchFilter = document.getElementById('search-filter').value.toLowerCase();
+    
+    // Age range filters
+    const minAge = document.getElementById('min-age').value;
+    const maxAge = document.getElementById('max-age').value;
+    
+    // Experience range filters
+    const minExp = document.getElementById('min-experience').value;
+    const maxExp = document.getElementById('max-experience').value;
 
     filteredPlayers = allPlayers.filter(player => {
         const matchPosition = !positionFilter || player.position === positionFilter;
         const matchTeam = !teamFilter || player.team === teamFilter;
+        const matchCollege = !collegeFilter || player.college === collegeFilter;
         const matchSearch = !searchFilter || player.name.toLowerCase().includes(searchFilter);
+        
+        // Age range check
+        const playerAge = player.age || 0;
+        const matchMinAge = !minAge || playerAge >= parseInt(minAge);
+        const matchMaxAge = !maxAge || playerAge <= parseInt(maxAge);
+        
+        // Experience range check
+        const playerExp = player.experience || 0;
+        const matchMinExp = !minExp || playerExp >= parseInt(minExp);
+        const matchMaxExp = !maxExp || playerExp <= parseInt(maxExp);
 
-        return matchPosition && matchTeam && matchSearch;
+        return matchPosition && matchTeam && matchCollege && matchSearch && 
+               matchMinAge && matchMaxAge && matchMinExp && matchMaxExp;
     });
 
     displayPlayers();
+    
+    // Update filtered count if element exists
+    const filteredCountEl = document.getElementById('filtered-count');
+    if (filteredCountEl) {
+        filteredCountEl.textContent = filteredPlayers.length;
+    }
 }
 
 function clearFilters() {
     document.getElementById('position-filter').value = '';
     document.getElementById('team-filter').value = '';
+    if (document.getElementById('college-filter')) document.getElementById('college-filter').value = '';
     document.getElementById('search-filter').value = '';
+    if (document.getElementById('min-age')) document.getElementById('min-age').value = '';
+    if (document.getElementById('max-age')) document.getElementById('max-age').value = '';
+    if (document.getElementById('min-experience')) document.getElementById('min-experience').value = '';
+    if (document.getElementById('max-experience')) document.getElementById('max-experience').value = '';
     filteredPlayers = [...allPlayers];
     displayPlayers();
+    const filteredCountEl = document.getElementById('filtered-count');
+    if (filteredCountEl) {
+        filteredCountEl.textContent = filteredPlayers.length;
+    }
 }
 
 function showError(message) {
@@ -234,3 +285,20 @@ function showError(message) {
 document.getElementById('position-filter').addEventListener('change', applyFilters);
 document.getElementById('team-filter').addEventListener('change', applyFilters);
 document.getElementById('search-filter').addEventListener('input', applyFilters);
+
+// Add event listeners for new filters (with null checks)
+if (document.getElementById('college-filter')) {
+    document.getElementById('college-filter').addEventListener('change', applyFilters);
+}
+if (document.getElementById('min-age')) {
+    document.getElementById('min-age').addEventListener('input', applyFilters);
+}
+if (document.getElementById('max-age')) {
+    document.getElementById('max-age').addEventListener('input', applyFilters);
+}
+if (document.getElementById('min-experience')) {
+    document.getElementById('min-experience').addEventListener('input', applyFilters);
+}
+if (document.getElementById('max-experience')) {
+    document.getElementById('max-experience').addEventListener('input', applyFilters);
+}

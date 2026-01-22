@@ -9,6 +9,18 @@ import time
 app = Flask(__name__)
 CORS(app)
 
+def convert_height_to_feet_inches(height_inches):
+    """Convert height from inches to feet'inches" format (e.g., 71 -> 5'11")"""
+    if not height_inches or height_inches == '':
+        return ''
+    try:
+        inches = int(height_inches)
+        feet = inches // 12
+        remaining_inches = inches % 12
+        return f"{feet}'{remaining_inches}\""
+    except:
+        return height_inches  # Return original if conversion fails
+
 def get_sleeper_players():
     """Fetch all NFL players from Sleeper API"""
     try:
@@ -44,6 +56,19 @@ def get_sleeper_players():
         print(f"Error fetching Sleeper players: {e}")
         return {}
 
+def get_league_name(league_id):
+    """Get the name of a league from Sleeper API"""
+    try:
+        response = requests.get(f'https://api.sleeper.app/v1/league/{league_id}', timeout=10)
+        if response.status_code == 200:
+            league_data = response.json()
+            return league_data.get('name', f'League {league_id}')
+        else:
+            return f'League {league_id}'
+    except Exception as e:
+        print(f"Error fetching league name for {league_id}: {e}")
+        return f'League {league_id}'
+
 def get_user_roster(username, league_id):
     """Get roster information for a specific user in a league"""
     try:
@@ -51,22 +76,25 @@ def get_user_roster(username, league_id):
         user_response = requests.get(f'https://api.sleeper.app/v1/user/{username}', timeout=10)
         if user_response.status_code != 200:
             print(f"Failed to fetch user {username}: HTTP {user_response.status_code}")
-            return "invalid_user", None
+            return "invalid_user", None, None
         user_data = user_response.json()
         user_id = user_data.get('user_id')
         
         if not user_id:
             print(f"No user_id found for username {username}")
-            return "invalid_user", None
+            return "invalid_user", None, None
+        
+        # Get league information to get the league name
+        league_name = get_league_name(league_id)
         
         # Get all rosters for the league
         rosters_response = requests.get(f'https://api.sleeper.app/v1/league/{league_id}/rosters', timeout=10)
         if rosters_response.status_code == 404:
             print(f"League {league_id} not found - invalid league ID")
-            return "invalid_league", None
+            return "invalid_league", None, None
         elif rosters_response.status_code != 200:
             print(f"Failed to fetch rosters for league {league_id}: HTTP {rosters_response.status_code}")
-            return "error", None
+            return "error", None, None
         
         rosters = rosters_response.json()
         
@@ -74,7 +102,7 @@ def get_user_roster(username, league_id):
         users_response = requests.get(f'https://api.sleeper.app/v1/league/{league_id}/users', timeout=10)
         if users_response.status_code != 200:
             print(f"Failed to fetch users for league {league_id}: HTTP {users_response.status_code}")
-            return "error", None
+            return "error", None, None
         league_users = users_response.json()
         
         # Create owner_id to username mapping
@@ -94,12 +122,12 @@ def get_user_roster(username, league_id):
                     user_roster.add(player_id)
                 player_ownership[player_id] = owner_to_username.get(owner_id, 'Unknown')
         
-        return user_roster, player_ownership
+        return user_roster, player_ownership, league_name
     except Exception as e:
         print(f"Error fetching roster for {username} in league {league_id}: {e}")
         import traceback
         traceback.print_exc()
-        return "error", None
+        return "error", None, None
 
 def scrape_fantasy_pros():
     """Scrape Fantasy Pros dynasty rankings"""
@@ -373,6 +401,139 @@ def scrape_draft_info():
     
     return draft_info
 
+def scrape_snap_counts():
+    """Scrape NFL Career Snap counts from Over The Cap
+    Note: This site uses JavaScript to load data dynamically, so basic scraping may not work.
+    An API or Selenium would be needed for full functionality.
+    """
+    snap_counts = {}
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        }
+        
+        print("Attempting to scrape Over The Cap snap counts...")
+        url = 'https://overthecap.com/snap-count-history'
+        response = requests.get(url, headers=headers, timeout=20)
+        
+        print(f"Snap counts response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Look for the snap counts table
+            table = soup.find('table', {'class': 'snap-counts-table'}) or soup.find('tbody')
+            
+            if table:
+                # If we got the whole table, find tbody; if we already have tbody, use it
+                tbody = table.find('tbody') if table.name != 'tbody' else table
+                if not tbody:
+                    tbody = table
+                    
+                rows = tbody.find_all('tr')
+                count = 0
+                
+                for row in rows:
+                    cols = row.find_all('td')
+                    if len(cols) >= 4:  # Need at least: name, team, position, spacer, data
+                        try:
+                            # First column: player name (has <a> tag)
+                            player_cell = cols[0]
+                            player_link = player_cell.find('a')
+                            if not player_link:
+                                continue
+                            player_name = player_link.text.strip()
+                            
+                            # Sum up all snap counts from year columns
+                            # Each year column has: <span class="number">XXX</span>
+                            career_snaps = 0
+                            for col in cols[4:]:  # Skip name, team, position, spacer
+                                # Look for <span class="number"> elements
+                                number_spans = col.find_all('span', {'class': 'number'})
+                                for span in number_spans:
+                                    try:
+                                        snap_text = span.text.strip().replace(',', '')
+                                        if snap_text.isdigit():
+                                            career_snaps += int(snap_text)
+                                    except:
+                                        continue
+                            
+                            if player_name and career_snaps > 0:
+                                snap_counts[player_name.lower()] = career_snaps
+                                count += 1
+                        except Exception as e:
+                            continue
+                
+                print(f"Scraped {count} players with snap counts")
+            else:
+                print("No snap counts table found (JavaScript-loaded content)")
+        else:
+            print(f"Failed to load snap counts: HTTP {response.status_code}")
+            
+    except Exception as e:
+        print(f"Error scraping snap counts: {e}")
+    
+    return snap_counts
+
+def deduplicate_players(players_list):
+    """Remove duplicate players based on client logic:
+    - If one duplicate is rostered to an NFL team and the other isn't → keep the NFL-rostered player
+    - For both un-rostered, keep the one with higher experience (yrs)
+    - If same experience, keep both
+    """
+    # Group players by (name, position, college)
+    from collections import defaultdict
+    player_groups = defaultdict(list)
+    
+    for player in players_list:
+        # Handle None values safely
+        name = (player.get('name') or '').lower().strip()
+        position = player.get('position') or ''
+        college = (player.get('college') or '').lower().strip()
+        
+        if not name:  # Skip players without names
+            continue
+            
+        key = (name, position, college)
+        player_groups[key].append(player)
+    
+    deduplicated = []
+    
+    for key, group in player_groups.items():
+        if len(group) == 1:
+            # No duplicates
+            deduplicated.append(group[0])
+        else:
+            # Has duplicates - apply logic
+            # Separate NFL-rostered from unrostered
+            nfl_rostered = [p for p in group if p.get('team') and p['team'] != 'FA']
+            unrostered = [p for p in group if not p.get('team') or p['team'] == 'FA']
+            
+            if nfl_rostered and unrostered:
+                # Keep NFL-rostered players only
+                deduplicated.extend(nfl_rostered)
+            elif nfl_rostered:
+                # All are NFL-rostered - keep all
+                deduplicated.extend(nfl_rostered)
+            elif unrostered:
+                # All are unrostered - keep highest experience
+                max_exp = max(p.get('experience', 0) or 0 for p in unrostered)
+                highest_exp_players = [p for p in unrostered if (p.get('experience', 0) or 0) == max_exp]
+                
+                if len(highest_exp_players) == len(unrostered):
+                    # All have same experience - keep all
+                    deduplicated.extend(unrostered)
+                else:
+                    # Keep only highest experience
+                    deduplicated.extend(highest_exp_players)
+            else:
+                # Fallback - keep all
+                deduplicated.extend(group)
+    
+    print(f"Deduplication: {len(players_list)} -> {len(deduplicated)} players")
+    return deduplicated
+
 def match_player_name(sleeper_name, external_name):
     """Fuzzy match player names"""
     # Normalize names
@@ -414,7 +575,7 @@ def get_players():
         print("Fetching Sleeper players...")
         sleeper_players = get_sleeper_players()
         
-        # Fetch external data sources
+        # Fetch external data sources (run in parallel would be better, but keeping simple for now)
         print("Fetching Fantasy Pros rankings...")
         fantasy_pros = scrape_fantasy_pros()
         
@@ -427,16 +588,21 @@ def get_players():
         print("Fetching draft info...")
         draft_info = scrape_draft_info()
         
+        print("Fetching snap counts...")
+        snap_counts = scrape_snap_counts()
+        
         # Get roster information for each league
         league_data = {}
+        league_names = {}  # Store league names for the response
         for league_id in league_ids:
             if league_id:
                 print(f"Fetching roster for league {league_id}...")
-                user_roster, player_ownership = get_user_roster(username, league_id)
+                user_roster, player_ownership, league_name = get_user_roster(username, league_id)
                 league_data[league_id] = {
                     'user_roster': user_roster,
                     'player_ownership': player_ownership
                 }
+                league_names[league_id] = league_name
         
         # Aggregate all data
         players_list = []
@@ -454,8 +620,9 @@ def get_players():
                 except:
                     pass
             
-            # Format height
-            height = player_data.get('height', '')
+            # Format height from inches to feet'inches\"
+            height_inches = player_data.get('height', '')
+            height_formatted = convert_height_to_feet_inches(height_inches)
             
             # Experience
             experience = player_data.get('years_exp', 0)
@@ -467,7 +634,7 @@ def get_players():
                 'position': player_data.get('position', ''),
                 'team': player_data.get('team', 'FA'),
                 'experience': experience,
-                'height': height,
+                'height': height_formatted,  # Now formatted as feet'inches\"
                 'weight': player_data.get('weight', ''),
                 'college': player_data.get('college', ''),
                 'age': age,
@@ -475,6 +642,7 @@ def get_players():
                 'overall_rank': '',
                 'position_rank': '',
                 'ras_score': '',
+                'nfl_career_snaps': '',  # New column
                 'free_agency_year': '',
                 'free_agency_type': '',
                 'draft_year': '',
@@ -493,6 +661,12 @@ def get_players():
             # Match with RAS scores
             if name_lower in ras_scores:
                 player_row['ras_score'] = ras_scores[name_lower]
+            
+            # Match with snap counts
+            if name_lower in snap_counts:
+                player_row['nfl_career_snaps'] = snap_counts[name_lower]
+            else:
+                player_row['nfl_career_snaps'] = 'N/A'  # Display N/A when data not available
             
             # Match with free agency
             if name_lower in free_agency:
@@ -534,10 +708,14 @@ def get_players():
             
             players_list.append(player_row)
         
+        # Apply deduplication logic
+        players_list = deduplicate_players(players_list)
+        
         return jsonify({
             'success': True,
             'players': players_list,
-            'total': len(players_list)
+            'total': len(players_list),
+            'league_names': league_names  # Include league names in response
         })
     
     except Exception as e:

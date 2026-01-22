@@ -83,37 +83,70 @@
 
         <!-- Filter Section -->
         <div id="filter-section" class="filter-section hidden">
-            <h3><i class="fas fa-filter"></i> Filters</h3>
+            <h3><i class="fas fa-filter"></i> Advanced Filters <span id="filtered-count" style="color: #4CAF50; font-weight: bold;"></span></h3>
             <div class="filters">
-                <div class="filter-group">
-                    <label>Position:</label>
-                    <select id="position-filter">
-                        <option value="">All</option>
-                        <option value="QB">QB</option>
-                        <option value="RB">RB</option>
-                        <option value="WR">WR</option>
-                        <option value="TE">TE</option>
-                    </select>
+                <div class="filter-row">
+                    <div class="filter-group">
+                        <label>Position:</label>
+                        <select id="position-filter">
+                            <option value="">All</option>
+                            <option value="QB">QB</option>
+                            <option value="RB">RB</option>
+                            <option value="WR">WR</option>
+                            <option value="TE">TE</option>
+                        </select>
+                    </div>
+
+                    <div class="filter-group">
+                        <label>Team:</label>
+                        <select id="team-filter">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+
+                    <div class="filter-group">
+                        <label>College:</label>
+                        <select id="college-filter">
+                            <option value="">All</option>
+                        </select>
+                    </div>
                 </div>
 
-                <div class="filter-group">
-                    <label>Team:</label>
-                    <select id="team-filter">
-                        <option value="">All</option>
-                    </select>
+                <div class="filter-row">
+                    <div class="filter-group">
+                        <label>Min Age:</label>
+                        <input type="number" id="min-age" placeholder="e.g., 21" min="18" max="50" />
+                    </div>
+
+                    <div class="filter-group">
+                        <label>Max Age:</label>
+                        <input type="number" id="max-age" placeholder="e.g., 30" min="18" max="50" />
+                    </div>
+
+                    <div class="filter-group">
+                        <label>Min Experience:</label>
+                        <input type="number" id="min-experience" placeholder="e.g., 0" min="0" max="25" />
+                    </div>
+
+                    <div class="filter-group">
+                        <label>Max Experience:</label>
+                        <input type="number" id="max-experience" placeholder="e.g., 10" min="0" max="25" />
+                    </div>
                 </div>
 
-                <div class="filter-group">
-                    <label>Search:</label>
-                    <input type="text" id="search-filter" placeholder="Search by name..." />
-                </div>
+                <div class="filter-row">
+                    <div class="filter-group" style="flex: 1;">
+                        <label>Search Player:</label>
+                        <input type="text" id="search-filter" placeholder="Search by name..." />
+                    </div>
 
-                <button class="btn-secondary" onclick="applyFilters()">
-                    <i class="fas fa-check"></i> Apply Filters
-                </button>
-                <button class="btn-secondary" onclick="clearFilters()">
-                    <i class="fas fa-eraser"></i> Clear Filters
-                </button>
+                    <button class="btn-secondary" onclick="applyFilters()">
+                        <i class="fas fa-check"></i> Apply Filters
+                    </button>
+                    <button class="btn-secondary" onclick="clearFilters()">
+                        <i class="fas fa-eraser"></i> Clear All
+                    </button>
+                </div>
             </div>
         </div>
 

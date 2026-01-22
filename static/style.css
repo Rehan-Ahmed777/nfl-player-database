@@ -228,8 +228,14 @@ header h1 i {
 }
 
 .filters {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.filter-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 15px;
     align-items: end;
 }
@@ -243,10 +249,12 @@ header h1 i {
     font-weight: 600;
     margin-bottom: 5px;
     color: var(--dark-color);
+    font-size: 0.9em;
 }
 
 .filter-group select,
-.filter-group input {
+.filter-group input[type="text"],
+.filter-group input[type="number"] {
     padding: 10px;
     border: 2px solid var(--border-color);
     border-radius: 6px;
@@ -265,8 +273,11 @@ header h1 i {
 
 .table-wrapper {
     overflow-x: auto;
+    overflow-y: auto;
+    max-height: 600px;
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    position: relative;
 }
 
 table {
