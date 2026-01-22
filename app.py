@@ -5,6 +5,13 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 import re
 import time
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
 
 app = Flask(__name__)
 CORS(app)
@@ -55,6 +62,26 @@ def get_sleeper_players():
     except Exception as e:
         print(f"Error fetching Sleeper players: {e}")
         return {}
+
+def get_selenium_driver():
+    """Create and configure a headless Chrome driver for web scraping"""
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--window-size=1920,1080')
+    chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+    chrome_options.page_load_strategy = 'eager'  # Don't wait for all resources
+    
+    try:
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        driver.set_page_load_timeout(30)  # 30 second page load timeout
+        return driver
+    except Exception as e:
+        print(f"Error creating Selenium driver: {e}")
+        return None
 
 def get_league_name(league_id):
     """Get the name of a league from Sleeper API"""
@@ -130,134 +157,165 @@ def get_user_roster(username, league_id):
         return "error", None, None
 
 def scrape_fantasy_pros():
-    """Scrape Fantasy Pros dynasty rankings"""
+    """Scrape Fantasy Pros dynasty rankings using Selenium"""
     rankings = {}
+    driver = None
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
-        }
+        print("Attempting to scrape Fantasy Pros with Selenium...")
+        driver = get_selenium_driver()
+        if not driver:
+            print("Failed to create Selenium driver for Fantasy Pros")
+            return rankings
         
-        print("Attempting to scrape Fantasy Pros...")
-        response = requests.get('https://www.fantasypros.com/nfl/rankings/dynasty-overall.php', 
-                              headers=headers, timeout=20, allow_redirects=True)
+        url = 'https://www.fantasypros.com/nfl/rankings/dynasty-overall.php'
+        driver.get(url)
         
-        print(f"Fantasy Pros response status: {response.status_code}")
+        # Wait for table to load (up to 15 seconds)
+        wait = WebDriverWait(driver, 15)
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
         
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
+        # Give extra time for JavaScript to populate data
+        time.sleep(3)
+        
+        # Parse the rendered HTML
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        
+        # Try multiple table selectors
+        table = (soup.find('table', {'id': 'ranking-table'}) or 
+                soup.find('table', {'id': 'data'}) or
+                soup.find('table', {'class': 'player-table'}) or
+                soup.find('table'))
+        
+        if table:
+            print(f"Found table on Fantasy Pros")
+            rows = table.find_all('tr')
+            print(f"Found {len(rows)} rows")
             
-            # Try multiple table selectors
-            table = (soup.find('table', {'id': 'ranking-table'}) or 
-                    soup.find('table', {'id': 'data'}) or
-                    soup.find('table', {'class': 'player-table'}) or
-                    soup.find('table'))
+            count = 0
+            for row in rows[1:]:  # Skip header
+                cols = row.find_all('td')
+                if len(cols) >= 3:  # Need at least 3 columns
+                    try:
+                        # Rank in column 0
+                        rank_text = cols[0].text.strip()
+                        
+                        # Player name in column 2 (col 1 is empty)
+                        player_text = cols[2].text.strip()
+                        
+                        # Remove team in parentheses like "(CAR)"
+                        player_name = re.sub(r'\s*\([^)]*\)\s*$', '', player_text).strip()
+                        
+                        # Position rank in column 3
+                        position_rank = cols[3].text.strip() if len(cols) > 3 else ''
+                        
+                        # Extract rank number
+                        rank_match = re.search(r'(\d+)', rank_text)
+                        if player_name and rank_match:
+                            overall_rank = int(rank_match.group(1))
+                            
+                            rankings[player_name.lower()] = {
+                                'overall_rank': overall_rank,
+                                'position_rank': position_rank
+                            }
+                            count += 1
+                            
+                            # Debug first 3
+                            if count <= 3:
+                                print(f"  #{overall_rank}: {player_name} ({position_rank})")
+                    except Exception as e:
+                        continue
             
-            if table:
-                print(f"Found table on Fantasy Pros")
-                rows = table.find_all('tr')
-                print(f"Found {len(rows)} rows")
-                
-                for row in rows[1:]:  # Skip header
-                    cols = row.find_all('td')
-                    if len(cols) >= 2:
-                        try:
-                            # Try to find rank (usually first column)
-                            rank = cols[0].text.strip()
-                            
-                            # Try to find player name (usually second column)
-                            player_cell = cols[1]
-                            player_name = player_cell.find('a').text.strip() if player_cell.find('a') else player_cell.text.strip()
-                            
-                            # Clean player name (remove extra whitespace, team abbreviations, etc.)
-                            player_name = re.sub(r'\s+', ' ', player_name).strip()
-                            player_name = re.sub(r'\s*\([^)]*\)', '', player_name).strip()  # Remove (TB), (FA), etc.
-                            
-                            # Position rank - try different column positions
-                            pos_rank = ''
-                            for col in cols[2:5]:  # Check columns 2-4
-                                text = col.text.strip()
-                                if text and any(pos in text.upper() for pos in ['QB', 'RB', 'WR', 'TE']):
-                                    pos_rank = text
-                                    break
-                            
-                            if player_name and rank:
-                                rankings[player_name.lower()] = {
-                                    'overall_rank': rank,
-                                    'position_rank': pos_rank
-                                }
-                        except Exception as e:
-                            continue
-                
-                print(f"Scraped {len(rankings)} players from Fantasy Pros")
-            else:
-                print("No table found on Fantasy Pros page")
+            print(f"Scraped {count} Fantasy Pros rankings")
         else:
-            print(f"Failed to load Fantasy Pros: HTTP {response.status_code}")
+            print("No table found on Fantasy Pros page")
             
     except Exception as e:
         print(f"Error scraping Fantasy Pros: {e}")
-        import traceback
-        traceback.print_exc()
+    finally:
+        if driver:
+            driver.quit()
     
     return rankings
 
 def scrape_ras_scores():
-    """Scrape RAS scores from ras.football"""
+    """Scrape RAS (Relative Athletic Score) using Selenium"""
     ras_scores = {}
+    driver = None
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-        }
+        print("Attempting to scrape RAS scores with Selenium...")
+        driver = get_selenium_driver()
+        if not driver:
+            print("Failed to create Selenium driver for RAS")
+            return ras_scores
         
-        print("Attempting to scrape RAS scores...")
-        response = requests.get('https://ras.football/ras-information/', headers=headers, timeout=20)
+        url = 'https://ras.football/ras-information/'
+        driver.get(url)
         
-        print(f"RAS response status: {response.status_code}")
+        # Wait for page to load
+        wait = WebDriverWait(driver, 10)
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        time.sleep(3)  # Extra time for JavaScript
         
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Look for player data - RAS.football has a complex structure
-            # This is a simplified version - may need Selenium for full functionality
-            tables = soup.find_all('table')
-            print(f"Found {len(tables)} tables on RAS")
-            
-            for table in tables:
-                rows = table.find_all('tr')
-                for row in rows[1:]:
-                    cols = row.find_all(['td', 'th'])
-                    if len(cols) >= 3:
-                        try:
-                            # Try to extract player name and RAS score
-                            text_content = ' '.join([col.text.strip() for col in cols])
-                            # This needs to be refined based on actual site structure
-                            # For now, we'll skip this to avoid errors
-                        except:
-                            continue
-            
-            print(f"Scraped {len(ras_scores)} RAS scores")
-        else:
-            print(f"Failed to load RAS: HTTP {response.status_code}")
-            
+        # Parse the rendered HTML
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        
+        tables = soup.find_all('table')
+        print(f"Found {len(tables)} tables on RAS")
+        
+        count = 0
+        for table in tables:
+            rows = table.find_all('tr')
+            for row in rows[1:]:  # Skip header
+                cols = row.find_all(['td', 'th'])
+                if len(cols) >= 2:
+                    try:
+                        # Look for player name and RAS score
+                        player_name = None
+                        ras_score = None
+                        
+                        for i, col in enumerate(cols):
+                            text = col.text.strip()
+                            
+                            # Player name usually has link or is longer text
+                            if col.find('a') and not player_name:
+                                player_name = col.find('a').text.strip()
+                            
+                            # RAS score is usually a number between 0-10
+                            if not ras_score and text:
+                                try:
+                                    score = float(text)
+                                    if 0 <= score <= 10:
+                                        ras_score = text
+                                except:
+                                    pass
+                        
+                        if player_name and ras_score:
+                            ras_scores[player_name.lower()] = ras_score
+                            count += 1
+                            
+                    except Exception as e:
+                        continue
+        
+        print(f"Scraped {count} RAS scores")
+        
     except Exception as e:
         print(f"Error scraping RAS scores: {e}")
+    finally:
+        if driver:
+            driver.quit()
     
     return ras_scores
 
 def scrape_free_agency():
-    """Scrape free agency data from Over The Cap"""
+    """Scrape free agency data from Over The Cap using Selenium"""
     free_agency = {}
+    driver = None
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-        }
+        print("Attempting to scrape free agency with Selenium...")
+        driver = get_selenium_driver()
+        if not driver:
+            print("Failed to create Selenium driver for free agency")
+            return free_agency
         
         # Get current year and next 2 years
         current_year = datetime.now().year
@@ -265,78 +323,85 @@ def scrape_free_agency():
         
         for year in years:
             try:
-                print(f"Attempting to scrape Over The Cap for {year}...")
+                print(f"Scraping Over The Cap free agency for {year}...")
                 url = f'https://overthecap.com/free-agency/{year}'
-                response = requests.get(url, headers=headers, timeout=20)
+                driver.get(url)
                 
-                print(f"Over The Cap {year} response status: {response.status_code}")
+                # Wait for table to load
+                wait = WebDriverWait(driver, 10)
+                wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
+                time.sleep(2)  # Extra time for JavaScript
                 
-                if response.status_code == 200:
-                    soup = BeautifulSoup(response.content, 'html.parser')
-                    
-                    # Find the free agency table
-                    table = soup.find('table', {'class': 'sortable'}) or soup.find('table')
-                    
-                    if table:
-                        rows = table.find_all('tr')[1:]  # Skip header
-                        year_count = 0
-                        for row in rows:
-                            cols = row.find_all('td')
-                            if len(cols) >= 2:
-                                try:
-                                    player_cell = cols[0]
-                                    player_name = player_cell.find('a').text.strip() if player_cell.find('a') else player_cell.text.strip()
-                                    player_name = re.sub(r'\s+', ' ', player_name).strip()
-                                    
-                                    # Free agent type (UFA, RFA, etc.) - try different columns
-                                    fa_type = ''
-                                    for col in cols[1:4]:
-                                        text = col.text.strip()
-                                        if any(x in text.upper() for x in ['UFA', 'RFA', 'ERFA', 'VOID']):
-                                            fa_type = text
-                                            break
-                                    
-                                    if not fa_type and len(cols) > 1:
-                                        fa_type = cols[1].text.strip()
-                                    
-                                    if player_name.lower() not in free_agency:
-                                        free_agency[player_name.lower()] = []
-                                    
-                                    free_agency[player_name.lower()].append({
+                # Parse the rendered HTML
+                soup = BeautifulSoup(driver.page_source, 'html.parser')
+                
+                # Find the free agency table
+                table = soup.find('table', {'class': 'sortable'}) or soup.find('table')
+                
+                if table:
+                    rows = table.find_all('tr')[1:]  # Skip header
+                    year_count = 0
+                    for row in rows:
+                        cols = row.find_all('td')
+                        if len(cols) >= 2:
+                            try:
+                                player_cell = cols[0]
+                                player_link = player_cell.find('a')
+                                if player_link:
+                                    player_name = player_link.text.strip()
+                                else:
+                                    player_name = player_cell.text.strip()
+                                
+                                player_name = re.sub(r'\s+', ' ', player_name).strip()
+                                
+                                # Free agent type (UFA, RFA, etc.)
+                                fa_type = ''
+                                for col in cols[1:4]:
+                                    text = col.text.strip().upper()
+                                    if text in ['UFA', 'RFA', 'ERFA', 'XFA']:
+                                        fa_type = text
+                                        break
+                                
+                                if player_name:
+                                    name_lower = player_name.lower()
+                                    if name_lower not in free_agency:
+                                        free_agency[name_lower] = []
+                                    free_agency[name_lower].append({
                                         'year': year,
                                         'type': fa_type
                                     })
                                     year_count += 1
-                                except Exception as e:
-                                    continue
-                        
-                        print(f"Scraped {year_count} players for {year} from Over The Cap")
-                    else:
-                        print(f"No table found for {year}")
-                else:
-                    print(f"Failed to load Over The Cap for {year}")
+                            except Exception as e:
+                                continue
                     
-                time.sleep(1)  # Be nice to the server
-                
+                    print(f"Scraped {year_count} players for {year} from Over The Cap")
+                else:
+                    print(f"No table found for {year}")
+                    
             except Exception as e:
-                print(f"Error scraping free agency for {year}: {e}")
+                print(f"Error scraping year {year}: {e}")
                 continue
-                
-        print(f"Total free agency records: {len(free_agency)}")
+        
+        print(f"Total free agency records: {sum(len(v) for v in free_agency.values())}")
         
     except Exception as e:
-        print(f"Error scraping free agency: {e}")
+        print(f"Error in free agency scraper: {e}")
+    finally:
+        if driver:
+            driver.quit()
     
     return free_agency
 
 def scrape_draft_info():
-    """Scrape NFL draft information"""
+    """Scrape NFL draft information using Selenium"""
     draft_info = {}
+    driver = None
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-        }
+        print("Attempting to scrape draft info with Selenium...")
+        driver = get_selenium_driver()
+        if not driver:
+            print("Failed to create Selenium driver for draft info")
+            return draft_info
         
         # Get recent draft years
         current_year = datetime.now().year
@@ -344,52 +409,68 @@ def scrape_draft_info():
         
         for year in years:
             try:
-                print(f"Attempting to scrape Football DB draft {year}...")
+                print(f"Scraping Football DB draft {year}...")
                 url = f'https://www.footballdb.com/draft/{year}-draft/index.html'
-                response = requests.get(url, headers=headers, timeout=20)
+                driver.get(url)
                 
-                print(f"Football DB {year} response status: {response.status_code}")
+                # Wait for table to load
+                try:
+                    wait = WebDriverWait(driver, 5)
+                    wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
+                    time.sleep(1)
+                except:
+                    print(f"No table found for {year}")
+                    continue
                 
-                if response.status_code == 200:
-                    soup = BeautifulSoup(response.content, 'html.parser')
+                # Parse the rendered HTML
+                soup = BeautifulSoup(driver.page_source, 'html.parser')
+                
+                table = soup.find('table')
+                if table:
+                    rows = table.find_all('tr')[1:]  # Skip header
+                    year_count = 0
+                    for row in rows:
+                        cols = row.find_all('td')
+                        if len(cols) >= 4:
+                            try:
+                                # Column structure: Pick, Player, Position, Team, College
+                                pick_cell = cols[0]
+                                player_cell = cols[1]
+                                
+                                player_link = player_cell.find('a')
+                                if player_link:
+                                    player_name = player_link.text.strip()
+                                else:
+                                    player_name = player_cell.text.strip()
+                                
+                                player_name = re.sub(r'\s+', ' ', player_name).strip()
+                                
+                                # Extract pick number, round info
+                                pick_text = pick_cell.text.strip()
+                                pick_number = None
+                                round_number = None
+                                
+                                # Parse pick like "1" or "R1P1" format
+                                pick_match = re.search(r'(\d+)', pick_text)
+                                if pick_match:
+                                    pick_number = int(pick_match.group(1))
+                                    # Estimate round (32 picks per round)
+                                    round_number = (pick_number - 1) // 32 + 1
+                                
+                                if player_name and pick_number:
+                                    draft_info[player_name.lower()] = {
+                                        'year': year,
+                                        'round': round_number,
+                                        'pick': pick_number
+                                    }
+                                    year_count += 1
+                            except Exception as e:
+                                continue
                     
-                    # Find draft table
-                    table = soup.find('table', {'class': 'statistics'}) or soup.find('table')
-                    
-                    if table:
-                        rows = table.find_all('tr')[1:]  # Skip header
-                        year_count = 0
-                        for row in rows:
-                            cols = row.find_all('td')
-                            if len(cols) >= 3:
-                                try:
-                                    # Typical columns: Round, Pick, Player, Position, College
-                                    round_num = cols[0].text.strip()
-                                    pick_num = cols[1].text.strip()
-                                    
-                                    # Player name could be in various columns
-                                    player_cell = cols[2] if len(cols) > 2 else cols[1]
-                                    player_name = player_cell.find('a').text.strip() if player_cell.find('a') else player_cell.text.strip()
-                                    player_name = re.sub(r'\s+', ' ', player_name).strip()
-                                    
-                                    if player_name and round_num:
-                                        draft_info[player_name.lower()] = {
-                                            'year': year,
-                                            'round': round_num,
-                                            'pick': pick_num
-                                        }
-                                        year_count += 1
-                                except Exception as e:
-                                    continue
-                        
-                        print(f"Scraped {year_count} players from {year} draft")
-                    else:
-                        print(f"No table found for {year} draft")
+                    print(f"Scraped {year_count} draft picks for {year}")
                 else:
-                    print(f"Failed to load Football DB for {year}")
+                    print(f"No table found for {year}")
                     
-                time.sleep(1)  # Be nice to the server
-                
             except Exception as e:
                 print(f"Error scraping draft {year}: {e}")
                 continue
@@ -397,7 +478,10 @@ def scrape_draft_info():
         print(f"Total draft records: {len(draft_info)}")
         
     except Exception as e:
-        print(f"Error scraping draft info: {e}")
+        print(f"Error in draft info scraper: {e}")
+    finally:
+        if driver:
+            driver.quit()
     
     return draft_info
 
